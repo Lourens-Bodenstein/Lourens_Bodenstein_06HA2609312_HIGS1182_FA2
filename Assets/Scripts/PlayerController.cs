@@ -9,15 +9,16 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float fireRate = 0.25f;
     [SerializeField] private float weaponRange = 50f;
     [SerializeField] private LayerMask hittableLayers;
-
     [Header("Shooting Visuals")]
     [SerializeField] private float laserDuration = 0.05f;
+    [SerializeField] private GameObject explosionPrefab;
 
     // Cached Components & State Tracking
     private Rigidbody rb;
     private LineRenderer laserLine;
     private Vector3 moveInput;
     private float nextFireTime;
+    private bool isDead = false;
 
     private void Start()
     {
@@ -31,11 +32,13 @@ public class PlayerController : MonoBehaviour
 
     private void Update()
     {
+        if (isDead) return; // Prevent input handling if dead
         HandleInput();
     }
 
     private void FixedUpdate()
     {
+        if (isDead) return; // Prevent physics movement if dead
         MovePlayer();
     }
 
@@ -70,11 +73,10 @@ public class PlayerController : MonoBehaviour
     }
 
     /// <summary>
-    /// Custom method executing modular Raycast hit-detection with visual laser rendering.
+    /// Custom method executing modular Raycast hit-detection with visual laser rendering and impact explosions.
     /// </summary>
     private void ExecuteRaycastShoot()
     {
-        // Try to find the right barrel tip dynamically, otherwise default to player center
         Transform gunBarrel = transform.Find("RightGun");
         Vector3 fireOrigin = gunBarrel != null ? gunBarrel.position : transform.position;
         Vector3 fireDirection = transform.forward;
@@ -88,54 +90,72 @@ public class PlayerController : MonoBehaviour
             endpoint = hitInfo.point; // Snap laser line directly to the target point
             Debug.Log($"Raycast Hit: {hitInfo.collider.name} at position {hitInfo.point}");
 
+            // NEW: Fulfill Rubric Requirement: Generate visual feedback explosion instantly at the impact point
+            if (explosionPrefab != null)
+            {
+                Instantiate(explosionPrefab, hitInfo.point, Quaternion.identity);
+            }
+
+            // Handle laser damage/destruction on both Asteroids and Enemies
             if (hitInfo.collider.CompareTag("Asteroid"))
             {
                 Destroy(hitInfo.collider.gameObject);
                 Debug.Log("Asteroid successfully destroyed via Raycast weapon discharge.");
             }
+            else if (hitInfo.collider.CompareTag("Enemy"))
+            {
+                Destroy(hitInfo.collider.gameObject);
+                Debug.Log("Enemy drone successfully neutralized via Raycast weapon discharge.");
+            }
         }
 
-        // Set line target ending coordinate
         laserLine.SetPosition(1, endpoint);
-
-        // Run the custom routine to flash the beam on and off quickly
         StartCoroutine(RenderLaserBeam());
     }
 
-    /// <summary>
-    /// Coroutine to handle the frame-rate independent visual duration of the weapon fire.
-    /// </summary>
     private System.Collections.IEnumerator RenderLaserBeam()
     {
         laserLine.enabled = true;
         yield return new WaitForSeconds(laserDuration);
         laserLine.enabled = false;
     }
+
+    /// <summary>
+    /// Unified 3D Collision handler for physics interactions.
+    /// </summary>
     private void OnCollisionEnter(Collision collision)
     {
-        // Check if our ship crashed directly into an asteroid mesh
-        if (collision.gameObject.CompareTag("Asteroid"))
+        // Check if our ship crashed directly into an asteroid mesh or enemy unit
+        if (collision.gameObject.CompareTag("Asteroid") || collision.gameObject.CompareTag("Enemy"))
         {
-            // Report loss condition straight to our master game state machine
+            // Report loss condition straight to our master game state machine safely
             GameManager.Instance.TriggerGameOverState();
 
-            // Destroy the player capsule/cube visually
-            Destroy(gameObject);
+            // Handle player disabled state layout
+            isDead = true;
+            rb.linearVelocity = Vector3.zero;
         }
     }
 
     /// <summary>
-    /// Rubric Requirement: Use collision/trigger detection for obstacle and item interaction handles.
+    /// Rubric Requirement: Use trigger detection for item interaction handles.
     /// </summary>
     private void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("Collectible"))
+        if (other.CompareTag("Scrap") || other.CompareTag("Collectible"))
         {
             Destroy(other.gameObject);
             Debug.Log("Item Collected: Scrap unit safely recovered by drone hardware.");
 
-            // Send message directly to GameManager system!
+            // 1. Send score update message straight to GameManager system!
             GameManager.Instance.AddScore();
+
+            // 2. NEW: Tell the CollectibleManager to replace the collected unit instantly!
+            if (CollectibleManager.Instance != null)
+            {
+                CollectibleManager.Instance.ItemCollected();
+            }
         }
     }
+
 }

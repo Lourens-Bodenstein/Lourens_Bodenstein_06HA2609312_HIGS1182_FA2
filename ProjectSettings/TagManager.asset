@@ -6,11 +6,13 @@ TagManager:
   tags:
   - Asteroid
   - Collectible
+  - Enemy
+  - Scrap
   layers:
   - Default
   - TransparentFX
   - Ignore Raycast
-  - 
+  - Enemy
   - Water
   - UI
   - 
